@@ -35,8 +35,15 @@
         height: 100%;
         min-width: 0;
         min-height: 0;
-        border: 1px solid #333;
+        border: 1px solid #fff;
         box-sizing: border-box;
+      }
+      #wrap iframe.focused {
+        border-color: #00e676;
+      }
+      body.broadcasting #wrap iframe,
+      body.broadcasting #wrap iframe.focused {
+        border-color: #ff3b30;
       }
       #coordinator { grid-area: coordinator; }
       #tester { grid-area: tester; }
@@ -50,6 +57,19 @@
         place-items: center;
         color: #777;
       }
+      body.iframe-expanded {
+        overflow: hidden;
+      }
+      body.iframe-expanded #wrap > :not(.expanded) {
+        visibility: hidden;
+      }
+      #wrap iframe.expanded {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        width: 100vw;
+        height: 100vh;
+      }
     </style>
   </head>
   <body>
@@ -62,5 +82,186 @@
       <iframe id="coder3" src="/coder-3/" frameborder="0" scrolling="no" style="overflow: hidden"></iframe>
       <iframe id="coder4" src="/coder-4/" frameborder="0" scrolling="no" style="overflow: hidden"></iframe>
     </div>
+    <script>
+      const frames = Array.from(document.querySelectorAll("#wrap iframe"));
+      const boundDocuments = new WeakSet();
+      const relayedKeyEvents = new WeakSet();
+      let activeFrame = null;
+      let expandedFrame = null;
+      let broadcasting = false;
+
+      function focusFrame(frame) {
+        try {
+          frame.focus();
+          frame.contentWindow.focus();
+          const terminalInput = frame.contentDocument.querySelector(".xterm-helper-textarea");
+          if (terminalInput) terminalInput.focus({ preventScroll: true });
+        } catch (_) {
+          // The frame may not have finished loading yet.
+        }
+      }
+
+      function setActiveFrame(frame) {
+        if (!frame || activeFrame === frame) return;
+        if (activeFrame) activeFrame.classList.remove("focused");
+        activeFrame = frame;
+        activeFrame.classList.add("focused");
+        focusFrame(frame);
+      }
+
+      function clearActiveFrame() {
+        if (!activeFrame) return;
+        activeFrame.classList.remove("focused");
+        try {
+          activeFrame.contentDocument.activeElement.blur();
+        } catch (_) {
+          // The frame may have navigated while losing focus.
+        }
+        activeFrame = null;
+      }
+
+      function isChord(event, key) {
+        return event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === key;
+      }
+
+      function handleBroadcastShortcut(event) {
+        if (!isChord(event, "g")) return false;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.type === "keydown" && !event.repeat) {
+          broadcasting = !broadcasting;
+          document.body.classList.toggle("broadcasting", broadcasting);
+        }
+        return true;
+      }
+
+      function handleShortcut(event, sourceFrame) {
+        if (!isChord(event, "enter")) return false;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.type !== "keydown" || event.repeat) return true;
+
+        const targetFrame = activeFrame ?? sourceFrame;
+        if (!targetFrame) return true;
+        if (expandedFrame) {
+          expandedFrame.classList.remove("expanded");
+          document.body.classList.remove("iframe-expanded");
+          expandedFrame = null;
+        } else {
+          expandedFrame = targetFrame;
+          expandedFrame.classList.add("expanded");
+          document.body.classList.add("iframe-expanded");
+        }
+        focusFrame(targetFrame);
+        return true;
+      }
+
+      function isShiftEnter(event) {
+        return event.key === "Enter" && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+      }
+
+      function dispatchKeyboard(frame, type, init, relayed = false) {
+        try {
+          const target = frame.contentDocument.querySelector(".xterm-helper-textarea");
+          if (!target) return;
+          const event = new KeyboardEvent(type, init);
+          if (relayed) relayedKeyEvents.add(event);
+          target.dispatchEvent(event);
+        } catch (_) {
+          // The target frame may not have finished loading or may have navigated.
+        }
+      }
+
+      function translateShiftEnter(event, sourceFrame) {
+        if (!isShiftEnter(event)) return false;
+        const targetFrame = activeFrame ?? sourceFrame;
+        if (!targetFrame) return false;
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.type === "keydown" && !event.repeat) {
+          // xterm/ttyd can lose Shift+Enter; Pi accepts Ctrl+J as the same newline action.
+          const ctrlJ = {
+            key: "j",
+            code: "KeyJ",
+            keyCode: 74,
+            which: 74,
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true,
+          };
+          dispatchKeyboard(targetFrame, "keydown", ctrlJ);
+          dispatchKeyboard(targetFrame, "keyup", ctrlJ);
+        }
+        return true;
+      }
+
+      function relayKeyboard(event, sourceFrame) {
+        if (!broadcasting) return;
+        if (!sourceFrame) event.preventDefault();
+        const init = {
+          key: event.key,
+          code: event.code,
+          location: event.location,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          metaKey: event.metaKey,
+          repeat: event.repeat,
+          isComposing: event.isComposing,
+          keyCode: event.keyCode,
+          which: event.which,
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+        };
+        for (const frame of frames) {
+          if (frame !== sourceFrame) dispatchKeyboard(frame, event.type, init, true);
+        }
+      }
+
+      function handleFrameKeyboard(event, sourceFrame) {
+        if (relayedKeyEvents.has(event)) return;
+        if (handleBroadcastShortcut(event)) return;
+        if (handleShortcut(event, sourceFrame)) return;
+        if (translateShiftEnter(event, sourceFrame)) return;
+        relayKeyboard(event, sourceFrame);
+      }
+
+      function bindFrameDocument(frame) {
+        try {
+          const frameDocument = frame.contentDocument;
+          if (!frameDocument || boundDocuments.has(frameDocument)) return;
+          boundDocuments.add(frameDocument);
+          ["pointerover", "pointermove", "pointerdown"].forEach((type) => {
+            frameDocument.addEventListener(type, () => setActiveFrame(frame), true);
+          });
+          ["keydown", "keyup"].forEach((type) => {
+            frameDocument.addEventListener(type, (event) => handleFrameKeyboard(event, frame), true);
+          });
+        } catch (_) {
+          // A cross-origin frame cannot be inspected for its pointer or keyboard events.
+        }
+      }
+
+      frames.forEach((frame) => {
+        frame.addEventListener("pointerenter", () => setActiveFrame(frame));
+        frame.addEventListener("pointerdown", () => setActiveFrame(frame));
+        frame.addEventListener("focus", () => setActiveFrame(frame));
+        frame.addEventListener("load", () => {
+          bindFrameDocument(frame);
+          if (activeFrame === frame) focusFrame(frame);
+        });
+        bindFrameDocument(frame);
+      });
+
+      document.addEventListener("pointermove", (event) => {
+        if (frames.includes(event.target)) setActiveFrame(event.target);
+        else clearActiveFrame();
+      }, true);
+      ["keydown", "keyup"].forEach((type) => {
+        document.addEventListener(type, (event) => handleFrameKeyboard(event, null), true);
+      });
+    </script>
   </body>
 </html>

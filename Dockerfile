@@ -57,7 +57,7 @@ COPY .tmux.conf /root/.tmux.conf
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 
 RUN mkdir -p /root/.pi/agent/extensions
-COPY compaction-summary-guard.ts /root/.pi/agent/extensions/
+COPY compaction-summary-guard.ts loop-guard.ts queue-reload.ts session-commands.ts /root/.pi/agent/extensions/
 
 WORKDIR /workspace
 
