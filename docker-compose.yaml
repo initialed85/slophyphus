@@ -1,0 +1,250 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/compose-spec/compose-spec/refs/heads/main/schema/compose-spec.json
+
+services:
+  build:
+    image: initialed85/slopyphus:latest
+    build:
+      dockerfile: ./Dockerfile
+      context: .
+    entrypoint: ["true"]
+
+  coordinator:
+    depends_on:
+      build:
+        condition: service_completed_successfully
+    privileged: true
+    restart: unless-stopped
+    hostname: coordinator
+    container_name: coordinator
+    stop_grace_period: 1s
+    stop_signal: SIGTERM
+    image: initialed85/slopyphus:latest
+    volumes:
+      - ${HOME?HOME env var unset}/.pi/agent/models.json:/root/.pi/agent/models.json:ro
+      - ${HOME?HOME env var unset}/.kube/config:/root/.kube/config:ro
+      - ${HOME?HOME env var unset}/.docker/config.json:/root/.docker/config.json:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa.pub:/root/.ssh/id_rsa.pub:ro
+      - ./_AGENTS.md:/root/.pi/agent/AGENTS.md:ro
+      - ./_SERVICES.md:/root/.pi/agent/SERVICES.md:ro
+      - ./_COORDINATOR_APPEND_SYSTEM.md:/root/.pi/agent/APPEND_SYSTEM.md:ro
+      - ./workspace:/workspace
+      - ./state/coordinator/session-history:/root/.pi/agent/session-history
+      - ./state/coordinator/sessions:/root/.pi/agent/sessions
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - MODEL=${COORDINATOR_MODEL?COORDINATOR_MODEL env var empty or unset}
+      - PI_TEAM_ROOM_NETWORK=1
+      - PI_TEAM_ROOM_SHARED_SECRET='slopyphus'
+      - PI_TEAM_ROOM_PEERS='coder-1:43321,coder-2:43321,coder-3:43321,coder-4:43321'
+
+  coder-1:
+    depends_on:
+      build:
+        condition: service_completed_successfully
+    privileged: true
+    restart: unless-stopped
+    hostname: coder-1
+    container_name: coder-1
+    stop_grace_period: 1s
+    stop_signal: SIGTERM
+    image: initialed85/slopyphus:latest
+    volumes:
+      - ${HOME?HOME env var unset}/.pi/agent/models.json:/root/.pi/agent/models.json:ro
+      - ${HOME?HOME env var unset}/.kube/config:/root/.kube/config:ro
+      - ${HOME?HOME env var unset}/.docker/config.json:/root/.docker/config.json:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa.pub:/root/.ssh/id_rsa.pub:ro
+      - ./_AGENTS.md:/root/.pi/agent/AGENTS.md:ro
+      - ./_SERVICES.md:/root/.pi/agent/SERVICES.md:ro
+      - ./_CODER_APPEND_SYSTEM.md:/root/.pi/agent/APPEND_SYSTEM.md:ro
+      - ./workspace:/workspace
+      - ./state/coder-1/session-history:/root/.pi/agent/session-history
+      - ./state/coder-1/sessions:/root/.pi/agent/sessions
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - MODEL=${CODER_MODEL?CODER_MODEL env var empty or unset}
+      - PI_TEAM_ROOM_NETWORK=1
+      - PI_TEAM_ROOM_SHARED_SECRET='slopyphus'
+      - PI_TEAM_ROOM_PEERS='coordinator:43321'
+
+  coder-2:
+    depends_on:
+      build:
+        condition: service_completed_successfully
+    privileged: true
+    restart: unless-stopped
+    hostname: coder-2
+    container_name: coder-2
+    stop_grace_period: 1s
+    stop_signal: SIGTERM
+    image: initialed85/slopyphus:latest
+    volumes:
+      - ${HOME?HOME env var unset}/.pi/agent/models.json:/root/.pi/agent/models.json:ro
+      - ${HOME?HOME env var unset}/.kube/config:/root/.kube/config:ro
+      - ${HOME?HOME env var unset}/.docker/config.json:/root/.docker/config.json:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa.pub:/root/.ssh/id_rsa.pub:ro
+      - ./_AGENTS.md:/root/.pi/agent/AGENTS.md:ro
+      - ./_SERVICES.md:/root/.pi/agent/SERVICES.md:ro
+      - ./_CODER_APPEND_SYSTEM.md:/root/.pi/agent/APPEND_SYSTEM.md:ro
+      - ./workspace:/workspace
+      - ./state/coder-2/session-history:/root/.pi/agent/session-history
+      - ./state/coder-2/sessions:/root/.pi/agent/sessions
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - MODEL=${CODER_MODEL?CODER_MODEL env var empty or unset}
+      - PI_TEAM_ROOM_NETWORK=1
+      - PI_TEAM_ROOM_SHARED_SECRET='slopyphus'
+      - PI_TEAM_ROOM_PEERS='coordinator:43321'
+
+  coder-3:
+    depends_on:
+      build:
+        condition: service_completed_successfully
+    privileged: true
+    restart: unless-stopped
+    hostname: coder-3
+    container_name: coder-3
+    stop_grace_period: 1s
+    stop_signal: SIGTERM
+    image: initialed85/slopyphus:latest
+    volumes:
+      - ${HOME?HOME env var unset}/.pi/agent/models.json:/root/.pi/agent/models.json:ro
+      - ${HOME?HOME env var unset}/.kube/config:/root/.kube/config:ro
+      - ${HOME?HOME env var unset}/.docker/config.json:/root/.docker/config.json:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa.pub:/root/.ssh/id_rsa.pub:ro
+      - ./_AGENTS.md:/root/.pi/agent/AGENTS.md:ro
+      - ./_SERVICES.md:/root/.pi/agent/SERVICES.md:ro
+      - ./_CODER_APPEND_SYSTEM.md:/root/.pi/agent/APPEND_SYSTEM.md:ro
+      - ./workspace:/workspace
+      - ./state/coder-3/session-history:/root/.pi/agent/session-history
+      - ./state/coder-3/sessions:/root/.pi/agent/sessions
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - MODEL=${CODER_MODEL?CODER_MODEL env var empty or unset}
+      - PI_TEAM_ROOM_NETWORK=1
+      - PI_TEAM_ROOM_SHARED_SECRET='slopyphus'
+      - PI_TEAM_ROOM_PEERS='coordinator:43321'
+
+  coder-4:
+    depends_on:
+      build:
+        condition: service_completed_successfully
+    privileged: true
+    restart: unless-stopped
+    hostname: coder-4
+    container_name: coder-4
+    stop_grace_period: 1s
+    stop_signal: SIGTERM
+    image: initialed85/slopyphus:latest
+    volumes:
+      - ${HOME?HOME env var unset}/.pi/agent/models.json:/root/.pi/agent/models.json:ro
+      - ${HOME?HOME env var unset}/.kube/config:/root/.kube/config:ro
+      - ${HOME?HOME env var unset}/.docker/config.json:/root/.docker/config.json:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa.pub:/root/.ssh/id_rsa.pub:ro
+      - ./_AGENTS.md:/root/.pi/agent/AGENTS.md:ro
+      - ./_SERVICES.md:/root/.pi/agent/SERVICES.md:ro
+      - ./_CODER_APPEND_SYSTEM.md:/root/.pi/agent/APPEND_SYSTEM.md:ro
+      - ./workspace:/workspace
+      - ./state/coder-4/session-history:/root/.pi/agent/session-history
+      - ./state/coder-4/sessions:/root/.pi/agent/sessions
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - MODEL=${CODER_MODEL?CODER_MODEL env var empty or unset}
+      - PI_TEAM_ROOM_NETWORK=1
+      - PI_TEAM_ROOM_SHARED_SECRET='slopyphus'
+      - PI_TEAM_ROOM_PEERS='coordinator:43321'
+
+  tester:
+    depends_on:
+      build:
+        condition: service_completed_successfully
+    privileged: true
+    restart: unless-stopped
+    hostname: tester
+    container_name: tester
+    stop_grace_period: 1s
+    stop_signal: SIGTERM
+    image: initialed85/slopyphus:latest
+    volumes:
+      - ${HOME?HOME env var unset}/.pi/agent/models.json:/root/.pi/agent/models.json:ro
+      - ${HOME?HOME env var unset}/.kube/config:/root/.kube/config:ro
+      - ${HOME?HOME env var unset}/.docker/config.json:/root/.docker/config.json:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa.pub:/root/.ssh/id_rsa.pub:ro
+      - ./_AGENTS.md:/root/.pi/agent/AGENTS.md:ro
+      - ./_SERVICES.md:/root/.pi/agent/SERVICES.md:ro
+      - ./_TESTER_APPEND_SYSTEM.md:/root/.pi/agent/APPEND_SYSTEM.md:ro
+      - ./workspace:/workspace
+      - ./state/tester/session-history:/root/.pi/agent/session-history
+      - ./state/tester/sessions:/root/.pi/agent/sessions
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - MODEL=${CODER_MODEL?CODER_MODEL env var empty or unset}
+      - PI_TEAM_ROOM_NETWORK=1
+      - PI_TEAM_ROOM_SHARED_SECRET='slopyphus'
+      - PI_TEAM_ROOM_PEERS='coordinator:43321'
+
+  deployer:
+    depends_on:
+      build:
+        condition: service_completed_successfully
+    privileged: true
+    restart: unless-stopped
+    hostname: deployer
+    container_name: deployer
+    stop_grace_period: 1s
+    stop_signal: SIGTERM
+    image: initialed85/slopyphus:latest
+    volumes:
+      - ${HOME?HOME env var unset}/.pi/agent/models.json:/root/.pi/agent/models.json:ro
+      - ${HOME?HOME env var unset}/.kube/config:/root/.kube/config:ro
+      - ${HOME?HOME env var unset}/.docker/config.json:/root/.docker/config.json:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ${HOME?HOME env var unset}/.ssh/id_rsa.pub:/root/.ssh/id_rsa.pub:ro
+      - ./_AGENTS.md:/root/.pi/agent/AGENTS.md:ro
+      - ./_SERVICES.md:/root/.pi/agent/SERVICES.md:ro
+      - ./_DEPLOYER_APPEND_SYSTEM.md:/root/.pi/agent/APPEND_SYSTEM.md:ro
+      - ./workspace:/workspace
+      - ./state/deployer/session-history:/root/.pi/agent/session-history
+      - ./state/deployer/sessions:/root/.pi/agent/sessions
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - MODEL=${CODER_MODEL?CODER_MODEL env var empty or unset}
+      - PI_TEAM_ROOM_NETWORK=1
+      - PI_TEAM_ROOM_SHARED_SECRET='slopyphus'
+      - PI_TEAM_ROOM_PEERS='coordinator:43321'
+
+  nginx:
+    depends_on:
+      build:
+        condition: service_completed_successfully
+      coordinator:
+        condition: service_started
+      coder-1:
+        condition: service_started
+      coder-2:
+        condition: service_started
+      coder-3:
+        condition: service_started
+      coder-4:
+        condition: service_started
+      tester:
+        condition: service_started
+      deployer:
+        condition: service_started
+    privileged: true
+    restart: unless-stopped
+    hostname: nginx
+    container_name: nginx
+    stop_grace_period: 1s
+    stop_signal: SIGTERM
+    image: nginx:alpine
+    ports:
+      - 80:80/tcp
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./index.html:/usr/share/nginx/html/index.html:ro
