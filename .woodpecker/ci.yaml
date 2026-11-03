@@ -1,0 +1,38 @@
+# Build check for both images this repo ships.
+#
+# This repository has no test suite: it is a Dockerfile that assembles a terminal environment (ubuntu,
+# tmux, ttyd, trzsz, docker-cli, uv) plus a nginx front, and the only meaningful automated check is
+# "does the image still build". That is a real gate, because every layer here is an apt/PPA/curl install
+# against a moving upstream: `ubuntu:26.04`, the trzsz PPA and the docker.com repo can each break the
+# build without a single line of this repo changing.
+#
+# Deliberately does NOT push. build-tag-and-push.sh has its `docker image push` commented out, so the
+# published image is not this pipeline's to publish; CI builds to the CI node's daemon and stops. If you
+# want publishing here, uncomment the push in that script first and make the same decision here, so the
+# two paths do not drift into different contracts.
+#
+# The build runs against one CI node's dockerd over TCP (`docker-beefcake-ci-1` Service ->
+# 192.168.1.213:2375, published by home-ops
+# clusters/dev/applications/woodpecker/files/enable-docker-tcp.sh). Pinning one node per repo is what
+# keeps the layer cache warm, which matters a lot here: this Dockerfile is apt-heavy.
+#
+# Note the name mismatch, left alone on purpose: the GitHub repo is `slophyphus` and the image tag is
+# `initialed85/slopyphus` (no h). Renaming the image would break anything already pulling it by hand,
+# so this file reproduces the tag the script uses rather than "fixing" it.
+steps:
+  - name: build-app-image
+    image: docker.io/library/docker:cli
+    privileged: true
+    environment:
+      DOCKER_HOST: tcp://docker-beefcake-ci-1:2375
+    commands:
+      - docker info --format 'daemon={{.Name}} images_before={{.Images}}'
+      - docker build --pull --progress=plain -t initialed85/slopyphus:$CI_COMMIT_SHA -f ./Dockerfile .
+      - docker build --pull --progress=plain -t initialed85/slopyphus-nginx:$CI_COMMIT_SHA -f ./Dockerfile.nginx .
+      - docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep slopyphus || true
+      - docker system df
+
+when:
+  - event: push
+    branch: master
+  - event: pull_request
