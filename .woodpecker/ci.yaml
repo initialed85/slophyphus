@@ -17,10 +17,10 @@
 # `initialed85/slopyphus-nginx:$CI_COMMIT_SHA` exists only in the CI node's daemon (nothing here pushes
 # it), so it is not something a later step can run.
 #
-# Deliberately does NOT push. build-tag-and-push.sh has its `docker image push` commented out, so the
-# published image is not this pipeline's to publish; CI builds to the CI node's daemon and stops. If you
-# want publishing here, uncomment the push in that script first and make the same decision here, so the
-# two paths do not drift into different contracts.
+# Deliberately does NOT push: this file is the gate, `.woodpecker/build.yaml` is the publish, and on a
+# push to master the gate runs first and the publish runs the same builds again against the same pinned
+# node (so the second run is mostly `CACHED`). A publish should not be able to ship something the gate
+# would have refused, and the gate should not be the thing that decides what is in the registry.
 #
 # The build runs against one CI node's dockerd over TCP (`docker-beefcake-ci-1` Service ->
 # 192.168.1.213:2375, published by home-ops
@@ -84,6 +84,17 @@ steps:
       - "grep -qF 'rewrite ^/coder-1/(.*)$ /coder-1/$1 break;' /tmp/rendered/default.conf"
       - "if SVC_SUFFIX='bad suffix' COLUMNS='a' sh ./docker-entrypoint.nginx.sh true 2>/dev/null; then echo 'FAIL: an invalid SVC_SUFFIX was accepted'; exit 1; fi"
       - "echo 'invalid SVC_SUFFIX rejected'"
+      - "nginx -t -c /tmp/nginx.conf"
+      # The desktop the dev cluster actually runs (home-ops/clusters/dev/applications/slopyphus): one
+      # agent, columns only, no rows group. Asserted because it differs from the defaults above in the one
+      # rule that decides how the viewport is shared - a single group gets all of it - and because the
+      # Service name and the pane name are the same string there, which is the case a rename would break.
+      - "COLUMNS='home-ops' ROWS= SVC_SUFFIX=slopyphus.svc.cluster.local sh ./docker-entrypoint.nginx.sh true"
+      - "grep -qF 'set $slopyphus_upstream http://home-ops.slopyphus.svc.cluster.local:7681;' /tmp/rendered/default.conf"
+      - "grep -qF 'rewrite ^/home-ops/(.*)$ /home-ops/$1 break;' /tmp/rendered/default.conf"
+      - "grep -qF 'return 308 /home-ops/;' /tmp/rendered/default.conf"
+      - "grep -qF '#wrap { grid-template-columns: 1fr; }' /tmp/rendered/index.html"
+      - "test $(grep -c '<iframe' /tmp/rendered/index.html) = 1"
       - "nginx -t -c /tmp/nginx.conf"
       # Mistakes that used to produce a desktop nobody could bring up, or one that half worked.
       - "if COLUMNS='a' LAYOUT=sideways sh ./docker-entrypoint.nginx.sh true 2>/dev/null; then echo 'FAIL: an invalid LAYOUT was accepted'; exit 1; fi"

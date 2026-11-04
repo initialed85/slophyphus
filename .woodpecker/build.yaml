@@ -1,0 +1,93 @@
+# Build, publish, and deploy slopyphus.
+#
+# Shape (the same contract as initialed85/rooter and bench-chroma-rush): build on a CI node's dockerd,
+# push `:$CI_COMMIT_SHA` plus `:latest` to Docker Hub, then hand the sha to `initialed85/wp-kustomize-deploy`
+# so it stamps `clusters/dev/applications/slopyphus/kustomization.yaml` and pushes the commit. Argo CD's
+# auto-sync does the rollout; Git is the deploy record, so `git revert` is the rollback.
+#
+# Two images from one commit: this repo publishes an agent and a front, and the plugin takes a list of
+# names and applies one tag to all of them, each validated against the rendered manifest tree
+# independently. Spell the names exactly as `kustomization.yaml`'s `images:` has them - with the
+# `docker.io/` prefix - because that transformer matches the name string, not a normalised reference, and
+# a name that matches nothing is a deploy Argo reports green while every pod keeps its old image.
+#
+# This file duplicates `.woodpecker/ci.yaml`'s build on purpose, and runs after it on a push to master.
+# ci.yaml is the gate that must pass for a change to be acceptable (it builds, and it renders the front's
+# config against a real nginx and asserts what came out); this file is the publish, and a publish should
+# not happen on a build that was never checked. The duplication is two `docker build`s against the same
+# pinned node, whose layer cache makes the second one mostly `CACHED` - which is why the build is pinned
+# to one node at all.
+#
+# Pushing does not mean uploading: a rebuild whose layers are unchanged produces a new tag pointing at the
+# same digests, and `docker push` uploads nothing for layers the registry already has. The cost of a
+# docs-only merge is therefore a tag, a 3GB image on the node, and a rollout - not another 770MB upload.
+# That rollout is worth knowing about: stamping a new sha into the kustomization moves both Deployments
+# even when nothing in the images changed.
+#
+# Credentials are native Kubernetes Secrets in the `woodpecker` namespace, mapped to env by
+# `backend_options.kubernetes.secrets` (needs `WOODPECKER_BACKEND_K8S_ALLOW_NATIVE_SECRETS=true` on the
+# agent): `dockerhub` (user + PAT) and `home-ops-deploy-key` (write access to the home-ops repo only).
+# No secret text lives in this repository.
+steps:
+  - name: build-and-push
+    image: docker.io/library/docker:cli
+    privileged: true
+    environment:
+      # docker-beefcake-ci-1 Service -> 192.168.1.213:2375, published by home-ops
+      # clusters/dev/applications/woodpecker/files/enable-docker-tcp.sh. Pinned so this repo's apt-heavy
+      # agent layer stack stays warm between builds instead of being re-fetched from a cold node.
+      DOCKER_HOST: tcp://docker-beefcake-ci-1:2375
+      AGENT_IMAGE: docker.io/initialed85/slopyphus
+      FRONT_IMAGE: docker.io/initialed85/slopyphus-nginx
+    backend_options:
+      kubernetes:
+        secrets:
+          - name: dockerhub
+            key: username
+            target:
+              env: DOCKERHUB_USER
+          - name: dockerhub
+            key: token
+            target:
+              env: DOCKERHUB_TOKEN
+    commands:
+      - docker info --format 'daemon={{.Name}} images_before={{.Images}}'
+      - echo "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USER" --password-stdin
+      # --platform is not decoration: the CI nodes are amd64 and this image is what the amd64-only
+      # Deployments pull, but a build should say so rather than inherit whatever the daemon is.
+      - docker build --pull --progress=plain --platform=linux/amd64 -t "$AGENT_IMAGE:$CI_COMMIT_SHA" -t "$AGENT_IMAGE:latest" -f ./Dockerfile .
+      - docker build --pull --progress=plain --platform=linux/amd64 -t "$FRONT_IMAGE:$CI_COMMIT_SHA" -t "$FRONT_IMAGE:latest" -f ./Dockerfile.nginx .
+      - docker push "$AGENT_IMAGE:$CI_COMMIT_SHA"
+      - docker push "$AGENT_IMAGE:latest"
+      - docker push "$FRONT_IMAGE:$CI_COMMIT_SHA"
+      - docker push "$FRONT_IMAGE:latest"
+      - docker inspect --format 'agent_digests={{.RepoDigests}}' "$AGENT_IMAGE:$CI_COMMIT_SHA"
+      - docker inspect --format 'front_digests={{.RepoDigests}}' "$FRONT_IMAGE:$CI_COMMIT_SHA"
+      - docker system df
+
+  - name: deploy-home-ops
+    image: docker.io/initialed85/wp-kustomize-deploy:latest
+    depends_on: [build-and-push]
+    settings:
+      # A YAML list of plain scalars arrives as one comma-separated string in PLUGIN_IMAGE (Woodpecker
+      # joins lists of scalars), and the plugin splits it again. Both spellings are accepted; this one is
+      # the readable one.
+      image:
+        - docker.io/initialed85/slopyphus
+        - docker.io/initialed85/slopyphus-nginx
+      dir: clusters/dev/applications/slopyphus
+    backend_options:
+      kubernetes:
+        secrets:
+          - name: home-ops-deploy-key
+            key: id_ed25519
+            target:
+              env: PLUGIN_DEPLOY_KEY
+          - name: home-ops-deploy-key
+            key: known_hosts
+            target:
+              env: PLUGIN_KNOWN_HOSTS
+
+when:
+  - event: push
+    branch: master

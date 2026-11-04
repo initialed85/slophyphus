@@ -177,6 +177,42 @@ docker run -p 80:80 \
 In Kubernetes the front is an ordinary Deployment + Service in the same namespace as the agents. Compose
 needs no `SVC_SUFFIX`: a compose network answers bare names by itself.
 
+# Publishing
+
+Nothing here used to leave the build host, so the images were `:latest` at best and `slopyphus-nginx` was
+never on the registry at all. `.woodpecker/build.yaml` is the publish path now: build both images on a
+pinned CI node, push `:$CI_COMMIT_SHA` and `:latest` for each, then hand the sha to
+`initialed85/wp-kustomize-deploy`, which stamps it into the manifest's `kustomization.yaml` and pushes -
+Argo rolls, and `git revert` is the rollback. `build-tag-and-push.sh` does the same thing by hand
+(`NO_PUSH=1` for a local-only build; a sha tag is only made from a clean worktree, because a sha tag on a
+dirty one claims the image is bytes it was not built from).
+
+The gate is a separate file on purpose: `.woodpecker/ci.yaml` decides whether a change is acceptable,
+`.woodpecker/build.yaml` decides what is in the registry. On a push to `master` both run, the second one
+against the same node and mostly `CACHED`.
+
+# Deploying it
+
+Manifests live in home-ops, not here: `clusters/dev/applications/slopyphus/` (+ its Application at
+`clusters/dev/applications/slopyphus.yaml`), currently one agent called `home-ops` on
+gated `slopyphus.dev.initialed85.cc`, columns-only. That directory's README is the bring-up document -
+including the gitignored `___secret/slopyphus.yaml` skeleton holding `models.json`, `id_rsa`,
+`id_rsa.pub`, `known_hosts` and the kubeconfig, none of which this repo has any business containing.
+
+Two things that file documents rather than repeats:
+
+- the agent sets `NAME=home-ops` explicitly, and the pane name in `COLUMNS`, the `Service` name and the
+  agent's own `NAME` all have to be the same string, because ttyd's base path is `NAME` and the front
+  derives the upstream base path from the first label of the Service name it looks up;
+- the credentials are a Secret applied by hand, so nothing in the app starts until somebody brings it up,
+  which is the deliberate gate on "are the credentials in yet".
+
+`ttyd` 1.7.7 is stock here. Two of its flags matter to this design and neither is currently used:
+`-b/--base-path` is what the entrypoint relies on, and `-O/--check-origin` is *not* passed, so ttyd does
+not police the `Origin` header - which is what lets a websocket handshake arriving over TLS at Traefik
+reach a plain-HTTP ttyd. If that is ever tightened, `-H/--auth-header` is the flag that lets ttyd trust
+the identity headers the gate injects instead of doing its own auth.
+
 # Checks
 
 The front's config is generated, so the check that matters is on the generator, not the image:
@@ -191,8 +227,17 @@ docker run --rm -e COLUMNS='a,b' --entrypoint /docker-entrypoint.nginx.sh \
   initialed85/slopyphus-nginx sh -c 'cat /etc/nginx/conf.d/default.conf; echo; cat /usr/share/nginx/html/index.html'
 ```
 
-`.woodpecker/ci.yaml` builds both images and then runs `docker-entrypoint.nginx.sh` against a real
-`nginx:alpine` using the templates straight from the checkout, asserting the locations, rewrites, grid
-CSS, service suffix handling and pane count, running `nginx -t` on the result, and asserting that a bad
-`LAYOUT`, a bad `SVC_SUFFIX`, an empty desktop, a duplicated pane name and a reserved pane name are all
-rejected.
+The desktop the cluster actually runs is worth rendering on its own, because it is the one shape where
+the upstream name is a cluster Service rather than a compose hostname:
+
+```sh
+docker run --rm -v "$PWD":/w:ro -w /w -e TEMPLATE_DIR=. \
+  -e CONF_OUT=/tmp/default.conf -e HTML_OUT=/tmp/index.html -e RESOLVER=127.0.0.1 \
+  nginx:alpine sh -c "COLUMNS='home-ops' ROWS= SVC_SUFFIX=slopyphus.svc.cluster.local \
+    sh ./docker-entrypoint.nginx.sh true && grep -A4 'location /home-ops/' /tmp/default.conf"
+```
+
+`.woodpecker/ci.yaml` asserts the same render, including that single-group case (one iframe,
+`grid-template-columns: 1fr`, upstream `home-ops.<namespace>.svc.cluster.local:7681` rewritten to the
+base path `home-ops` was started with) and the rejections: a bad `LAYOUT`, a bad `SVC_SUFFIX`, an empty
+desktop, a duplicated pane name and a reserved pane name.
