@@ -15,8 +15,10 @@
 #     alice=https://agent.dev.initialed85.cc/coder-1
 #                                            -> any origin; the path is the upstream base path
 #     google=https://www.google.com            -> any origin served at its own root
-#   Rules: no scheme means a slopyphus agent container (port $AGENT_PORT, ttyd base path /<host>/);
-#   a scheme means an arbitrary origin served at whatever path it names (its own root if none).
+#   Rules: no scheme means a slopyphus agent container (port $AGENT_PORT, and ttyd's base path is the
+#   agent's name, which is the first label of the host: coordinator.slopyphus.svc.cluster.local is still
+#   an agent called coordinator); a scheme means an arbitrary origin served at whatever path it names
+#   (its own root if none).
 #   An upstream whose port is $AGENT_PORT is treated as a slopyphus agent either way, so
 #   "http://coder-1:7681" and "coder-1" mean the same thing.
 #
@@ -31,6 +33,9 @@
 #   PAGE_TITLE   the browser tab title                                         (default slophyphus)
 #   RESOLVER     DNS server for per-request upstream resolution; auto-detected from
 #                /etc/resolv.conf, or set to off to resolve every upstream when nginx starts
+#   SVC_SUFFIX   appended to bare hosts when looking them up, for Kubernetes: nginx does not expand
+#                search domains, so "coordinator" needs SVC_SUFFIX=<namespace>.svc.cluster.local to
+#                become a name CoreDNS will answer (default empty)
 #   TEMPLATE_DIR / CONF_OUT / HTML_OUT   where the templates are and where they are rendered to
 #
 # Rendering is deliberately done at container start rather than at build time: the point is to compose
@@ -47,6 +52,11 @@ PROG=${0##*/}
 # no path, a host with no port). 0x1f cannot appear in a name or a URL.
 US=$(printf '\037')
 
+die() {
+  printf '%s: %s\n' "$PROG" "$1" >&2
+  exit 1
+}
+
 TEMPLATE_DIR=${TEMPLATE_DIR:-/usr/share/slopyphus}
 CONF_OUT=${CONF_OUT:-/etc/nginx/conf.d/default.conf}
 HTML_OUT=${HTML_OUT:-/usr/share/nginx/html/index.html}
@@ -54,9 +64,17 @@ AGENT_PORT=${AGENT_PORT:-7681}
 LAYOUT=${LAYOUT:-columns_left}
 PAGE_TITLE=${PAGE_TITLE:-slophyphus}
 
+# See $SVC_SUFFIX's note in parse_spec: this is a Kubernetes convenience, off by default because a
+# compose network resolves bare names without any help.
+SVC_SUFFIX=${SVC_SUFFIX:-}
+case "$SVC_SUFFIX" in
+  "") ;;
+  *[!A-Za-z0-9._-]*) die "SVC_SUFFIX must be letters, digits, dot or dash (got '$SVC_SUFFIX')" ;;
+esac
+
 # Upstream names are resolved per request (see $DYNAMIC below), which needs a DNS server nginx can
-# ask. The cluster's own DNS is already in /etc/resolv.conf: 127.0.0.11 on a compose network,
-# kube-dns (e.g. 10.96.0.10) in Kubernetes. Override RESOLVER to point somewhere else.
+# ask. The cluster's own DNS is already in /etc/resolv.conf: 127.0.0.11 on a compose network, the
+# cluster DNS at 10.43.0.10 in the dev cluster. Override RESOLVER to point somewhere else.
 RESOLVER=${RESOLVER:-}
 if [ -z "$RESOLVER" ]; then
   RESOLVER=$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf 2>/dev/null || true)
@@ -74,11 +92,6 @@ COLUMNS_SPEC=${COLUMNS_SPEC:-}
 ROWS_SPEC=${ROWS_SPEC:-}
 if [ -z "$COLUMNS_SPEC" ]; then COLUMNS_SPEC=${COLUMNS:-}; fi
 if [ -z "$ROWS_SPEC" ]; then ROWS_SPEC=${ROWS:-}; fi
-
-die() {
-  printf '%s: %s\n' "$PROG" "$1" >&2
-  exit 1
-}
 
 tmp=$(mktemp -d) || die "mktemp failed"
 trap 'rm -rf "$tmp"' INT TERM EXIT
@@ -153,8 +166,10 @@ parse_spec() {
     # The port as written is what distinguishes a slopyphus agent from an arbitrary origin: ttyd
     # listens on $AGENT_PORT and serves its UI under its own name, so anything on that port is
     # expected to behave that way whatever scheme it was written with.
+    _bare=0
     if [ -z "$_scheme" ]; then
       # Bare host: a slopyphus container on a compose network, or a Kubernetes service name.
+      _bare=1
       if [ -z "$_hostport" ]; then
         _hostport=$_name
         _host=$_name
@@ -182,9 +197,24 @@ parse_spec() {
 
     if [ "$_kind" = agent ] && [ -z "$_path" ]; then
       # The agent container starts ttyd with a base path of its own name, so /alice/ has to reach
-      # coder-1 as /coder-1/, not as /alice/. A leading slash, never a trailing one: the renderers
-      # append exactly one.
-      _path="/$_host"
+      # coder-1 as /coder-1/, not as /alice/. The base path is the agent's NAME, which is the
+      # Service or container name, i.e. the first label of whatever host string was written: a host
+      # spelled out as coordinator.default.svc.cluster.local is still an agent called coordinator.
+      # A leading slash, never a trailing one: the renderers append exactly one.
+      _path="/${_host%%.*}"
+    fi
+
+    # nginx's resolver is not a libc stub resolver: it sends the name it was given and does not try the
+    # `search` domains in /etc/resolv.conf. Measured in the dev cluster with a bare Service name
+    # (kubernetes, kubernetes.default, then the FQDN): only the FQDN resolved (502, 502, 400). So a bare
+    # Kubernetes Service name 502s every pane unless something lengthens it. SVC_SUFFIX is that
+    # something, applied to the lookup only: the pane name, the agent's own base path and the host it is
+    # called by all stay short, because none of them are DNS names.
+    if [ "$_bare" = 1 ] && [ -n "$SVC_SUFFIX" ]; then
+      case "$_host" in
+        *."$SVC_SUFFIX") ;; # already spelled out; do not suffix twice
+        *) _hostport="${_host}.${SVC_SUFFIX}:${_port}" ;;
+      esac
     fi
 
     printf '%s\037%s\037%s://%s\037%s\037%s\n' "$_kind" "$_name" "$_scheme" "$_hostport" "$_path" "$_host" >>"$_out"

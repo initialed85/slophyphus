@@ -47,6 +47,7 @@ The front renders `nginx.conf` and `index.html` at container start from these va
 | `AGENT_PORT` | `7681` | the port a bare host is assumed to be a ttyd on |
 | `PAGE_TITLE` | `slophyphus` | browser tab title |
 | `RESOLVER` | auto | DNS server for upstream resolution; `off` to resolve at start instead |
+| `SVC_SUFFIX` | empty | appended to bare hosts when looking them up; see [Kubernetes](#kubernetes) |
 
 At least one of `COLUMNS` / `ROWS` must be set; both may be. `LAYOUT` decides how the viewport is split
 between the two groups, and each group splits its half equally among its panes — one pane or fifty both
@@ -104,6 +105,44 @@ pane, `/healthz` and the page itself keep serving. Set `RESOLVER=<ip>` to point 
 `RESOLVER=off` to resolve every upstream when nginx starts (then one unresolvable name takes the whole
 front down).
 
+## Kubernetes
+
+Bare names do not work on their own, and it is worth knowing why. nginx's `resolver` is not a libc stub
+resolver: it sends the name it was given and never tries the `search` domains in `/etc/resolv.conf`.
+Measured in the dev cluster against the Service that always exists (`kubernetes`), with a pane for each
+spelling:
+
+| `COLUMNS` | result |
+| --- | --- |
+| `kubernetes` | 502, `kubernetes could not be resolved (3: Host not found)` |
+| `kubernetes.default` | 502, same |
+| `kubernetes.default.svc.cluster.local` | proxied (400 from the API server, which is what a resolved name gets here) |
+| `kubernetes` + `SVC_SUFFIX=default.svc.cluster.local` | proxied (400) |
+
+`SVC_SUFFIX` is the short way: it lengthens the *lookup* only, so `COLUMNS='coordinator'` reaches
+`coordinator.<namespace>.svc.cluster.local` while the pane name, its label and the agent's own base path
+stay short. Get the namespace from the downward API:
+
+```yaml
+env:
+  - name: POD_NAMESPACE
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.namespace
+  - name: SVC_SUFFIX
+    value: $(POD_NAMESPACE).svc.cluster.local
+  - name: COLUMNS
+    value: coordinator,tester,deployer
+  - name: ROWS
+    value: coder-1,coder-2,coder-3,coder-4
+```
+
+Or spell the FQDN out and leave `SVC_SUFFIX` unset: `coordinator=coordinator.slopyphus.svc.cluster.local`.
+Either way each agent Deployment sets `NAME` so its ttyd base path is the pane's name (`/coordinator`),
+which is what the rewrite sends upstream. `GET /healthz` answers 200 from the front itself with no
+upstream involved, so a probe measures this container rather than the desktop it fronts; an agent whose
+Service does not resolve 502s its own pane and nothing else.
+
 ## Keyboard
 
 | key | effect |
@@ -135,10 +174,8 @@ docker run -p 80:80 \
   initialed85/slopyphus-nginx
 ```
 
-In Kubernetes the front is an ordinary Deployment + Service in the same namespace as the agents; bare
-names resolve to Services, and each agent Deployment sets `NAME` so its ttyd base path matches the pane
-name. `GET /healthz` answers 200 from the front itself (no upstream involved), so a probe measures this
-container rather than the desktop it fronts.
+In Kubernetes the front is an ordinary Deployment + Service in the same namespace as the agents. Compose
+needs no `SVC_SUFFIX`: a compose network answers bare names by itself.
 
 # Checks
 
@@ -156,5 +193,6 @@ docker run --rm -e COLUMNS='a,b' --entrypoint /docker-entrypoint.nginx.sh \
 
 `.woodpecker/ci.yaml` builds both images and then runs `docker-entrypoint.nginx.sh` against a real
 `nginx:alpine` using the templates straight from the checkout, asserting the locations, rewrites, grid
-CSS and pane count, running `nginx -t` on the result, and asserting that a bad `LAYOUT`, an empty desktop,
-a duplicated pane name and a reserved pane name are all rejected.
+CSS, service suffix handling and pane count, running `nginx -t` on the result, and asserting that a bad
+`LAYOUT`, a bad `SVC_SUFFIX`, an empty desktop, a duplicated pane name and a reserved pane name are all
+rejected.

@@ -76,6 +76,15 @@ steps:
       - "grep -qF 'proxy_set_header Host www.google.com;' /tmp/rendered/default.conf"
       - "grep -qF 'rewrite ^/web/(.*)$ /maps/$1 break;' /tmp/rendered/default.conf"
       - "nginx -t -c /tmp/nginx.conf"
+      # Kubernetes. nginx's resolver does not expand search domains (measured in the dev cluster: a bare
+      # Service name 502s, the FQDN does not), so SVC_SUFFIX lengthens the lookup and nothing else - the
+      # agent's own base path stays the short name ttyd was started with.
+      - "COLUMNS='coder-1' SVC_SUFFIX=slopyphus.svc.cluster.local AGENT_PORT=443 sh ./docker-entrypoint.nginx.sh true"
+      - "grep -qF 'set $slopyphus_upstream http://coder-1.slopyphus.svc.cluster.local:443;' /tmp/rendered/default.conf"
+      - "grep -qF 'rewrite ^/coder-1/(.*)$ /coder-1/$1 break;' /tmp/rendered/default.conf"
+      - "if SVC_SUFFIX='bad suffix' COLUMNS='a' sh ./docker-entrypoint.nginx.sh true 2>/dev/null; then echo 'FAIL: an invalid SVC_SUFFIX was accepted'; exit 1; fi"
+      - "echo 'invalid SVC_SUFFIX rejected'"
+      - "nginx -t -c /tmp/nginx.conf"
       # Mistakes that used to produce a desktop nobody could bring up, or one that half worked.
       - "if COLUMNS='a' LAYOUT=sideways sh ./docker-entrypoint.nginx.sh true 2>/dev/null; then echo 'FAIL: an invalid LAYOUT was accepted'; exit 1; fi"
       - "echo 'invalid LAYOUT rejected'"
