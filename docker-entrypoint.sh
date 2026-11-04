@@ -27,7 +27,7 @@ bash -lic 'pi update'
 bash -lic 'pi update --extensions'
 
 # shellcheck disable=SC2016
-tmux new-session -d -s "${NAME}" -c "/workspace" -- bash -lic "pushd /workspace/${NAME} && pi -c --name ${NAME} --model ${MODEL?MODEL env var empty or unset} || sleep 10" &
+tmux new-session -d -s "${NAME}" -c "/workspace/${NAME}" -- bash -lic "pi -c --name ${NAME} --model ${MODEL?MODEL env var empty or unset} || sleep 10" &
 
 # ttyd serves its UI under -b, and the front depends on that base path matching the agent's name:
 # /coordinator/ is rewritten to /coordinator/ on the upstream only because ttyd listens there.
