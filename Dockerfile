@@ -48,7 +48,7 @@ RUN echo 'export PATH=$PATH:/usr/bin/versions/node/v24.22.1/bin' >> /root/.bashr
 
 RUN pi install https://github.com/initialed85/pi-team-room
 RUN pi install https://github.com/initialed85/pi-ed
-# RUN pi install https://github.com/initialed85/rooter
+RUN pi install https://github.com/initialed85/rooter
 
 RUN bash -c 'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && mv kubectl /usr/local/bin/ && chmod +x /usr/local/bin/kubectl'
 
