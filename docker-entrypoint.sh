@@ -16,6 +16,14 @@ source /root/.bashrc
 mkdir -p "/workspace/${NAME}"
 pushd "/workspace/${NAME}"
 
+touch /docker-entrypoint-hook.sh
+chmod +x /docker-entrypoint-hook.sh >/dev/null 2>&1 || true
+
+if ! bash /docker-entrypoint-hook.sh; then
+	echo "error: failed to run /docker-entrypoint-hook.sh"
+	exit 1
+fi
+
 bash -lic 'pi update'
 bash -lic 'pi update --extensions'
 
