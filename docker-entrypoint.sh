@@ -16,6 +16,9 @@ source /root/.bashrc
 mkdir -p "/workspace/${NAME}"
 pushd "/workspace/${NAME}"
 
+bash -lic 'pi update'
+bash -lic 'pi update --extensions'
+
 # shellcheck disable=SC2016
 tmux new-session -d -s "${NAME}" -c "/workspace" -- bash -lic "pushd /workspace/${NAME} && pi -c --name ${NAME} --model ${MODEL?MODEL env var empty or unset} || sleep 10" &
 
