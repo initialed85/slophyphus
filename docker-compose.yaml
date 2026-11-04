@@ -218,33 +218,29 @@ services:
       - PI_TEAM_ROOM_SHARED_SECRET='slopyphus'
       - PI_TEAM_ROOM_PEERS='coordinator:43321'
 
+  # The desktop itself. Nothing about this service is hardcoded any more: nginx.conf and index.html are
+  # rendered at container start from COLUMNS / ROWS / LAYOUT, so adding an agent to the desktop is an
+  # environment variable rather than a config file that has to be kept in step with the services above.
+  # The agent names here are bare hostnames, which resolve on this compose network; AGENT_PORT stays at
+  # its default (7681), so a bare name is treated as a slopyphus agent and its ttyd base path is its name.
+  # There is no depends_on: the front resolves an upstream per request, so it comes up (and keeps serving
+  # every other pane) whether or not these agents are running.
   nginx:
-    depends_on:
-      build:
-        condition: service_completed_successfully
-      coordinator:
-        condition: service_started
-      coder-1:
-        condition: service_started
-      coder-2:
-        condition: service_started
-      coder-3:
-        condition: service_started
-      coder-4:
-        condition: service_started
-      tester:
-        condition: service_started
-      deployer:
-        condition: service_started
     privileged: true
     restart: unless-stopped
     hostname: nginx
     container_name: nginx
     stop_grace_period: 1s
     stop_signal: SIGTERM
-    image: nginx:alpine
+    image: initialed85/slopyphus-nginx:latest
+    build:
+      dockerfile: ./Dockerfile.nginx
+      context: .
     ports:
       - 80:80/tcp
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./index.html:/usr/share/nginx/html/index.html:ro
+    environment:
+      - COLUMNS=${UI_COLUMNS:-coordinator,tester,deployer}
+      - ROWS=${UI_ROWS:-coder-1,coder-2,coder-3,coder-4}
+      - LAYOUT=${UI_LAYOUT:-columns_left}
+      - PAGE_TITLE=${UI_PAGE_TITLE:-slophyphus}
+

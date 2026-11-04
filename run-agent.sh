@@ -16,6 +16,7 @@ docker run --rm -it \
 	--privileged \
 	--name "${NAME}" \
 	--hostname "${NAME}" \
+	-e NAME \
 	-e MODEL \
 	-e PI_TEAM_ROOM_NETWORK \
 	-e PI_TEAM_ROOM_SHARED_SECRET \

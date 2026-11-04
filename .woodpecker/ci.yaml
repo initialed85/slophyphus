@@ -1,10 +1,21 @@
-# Build check for both images this repo ships.
+# Build check for both images this repo ships, plus a render check for the front's config generator.
 #
 # This repository has no test suite: it is a Dockerfile that assembles a terminal environment (ubuntu,
-# tmux, ttyd, trzsz, docker-cli, uv) plus a nginx front, and the only meaningful automated check is
-# "does the image still build". That is a real gate, because every layer here is an apt/PPA/curl install
-# against a moving upstream: `ubuntu:26.04`, the trzsz PPA and the docker.com repo can each break the
-# build without a single line of this repo changing.
+# tmux, ttyd, trzsz, docker-cli, uv) plus a nginx front, and "does the image still build" is a real
+# gate, because every layer here is an apt/PPA/curl install against a moving upstream: `ubuntu:26.04`,
+# the trzsz PPA and the docker.com repo can each break the build without a single line of this repo
+# changing.
+#
+# Building the front image only proves the layers copy, though. The front's nginx.conf and index.html are
+# generated at container start by docker-entrypoint.nginx.sh from COLUMNS / ROWS / LAYOUT, so the part
+# that can silently rot is the generator, not the image: a rendered config that nginx refuses to start
+# with, or a pane whose rewrite sends ttyd to the wrong base path, is invisible to `docker build`. The
+# second step runs the generator against a real nginx and asserts what it emitted.
+#
+# That step uses the public `nginx:alpine` image and the templates straight from the checkout, not the
+# image built by the previous step: Woodpecker pulls a step image from a registry, and
+# `initialed85/slopyphus-nginx:$CI_COMMIT_SHA` exists only in the CI node's daemon (nothing here pushes
+# it), so it is not something a later step can run.
 #
 # Deliberately does NOT push. build-tag-and-push.sh has its `docker image push` commented out, so the
 # published image is not this pipeline's to publish; CI builds to the CI node's daemon and stops. If you
@@ -31,6 +42,49 @@ steps:
       - docker build --pull --progress=plain -t initialed85/slopyphus-nginx:$CI_COMMIT_SHA -f ./Dockerfile.nginx .
       - docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep slopyphus || true
       - docker system df
+
+  - name: render-front-config
+    image: docker.io/library/nginx:alpine
+    environment:
+      TEMPLATE_DIR: .
+      CONF_OUT: /tmp/rendered/default.conf
+      HTML_OUT: /tmp/rendered/index.html
+      # Fixed rather than auto-detected from the step container's /etc/resolv.conf, so the assertions
+      # below about the rendered resolver line cannot depend on which node ran the step.
+      RESOLVER: 127.0.0.1
+    commands:
+      # Every command here is a double quoted YAML scalar: a plain scalar containing ": " (a colon before
+      # a space) is a YAML mapping, not a string, and "#wrap { grid-template-columns: 1fr 1fr; }" and
+      # "FAIL: ..." both read as key/value pairs to a YAML parser. The step would then be a list
+      # containing an object, which is not a command.
+      - "mkdir -p /tmp/rendered"
+      # The rendered file is a server block for conf.d inclusion, so nginx -t needs a wrapper around it.
+      - "printf 'events {}\\nhttp {\\n  include %s;\\n}\\n' /tmp/rendered/default.conf > /tmp/nginx.conf"
+      # The desktop this repo ships today: three full height columns on the left, four coder bands on the right.
+      - "COLUMNS='coordinator,tester,deployer' ROWS='coder-1,coder-2,coder-3,coder-4' LAYOUT=columns_left sh ./docker-entrypoint.nginx.sh true"
+      - "grep -qF 'location /coordinator/ {' /tmp/rendered/default.conf"
+      - "grep -qF 'set $slopyphus_upstream http://coordinator:7681;' /tmp/rendered/default.conf"
+      - "grep -qF 'rewrite ^/coder-1/(.*)$ /coder-1/$1 break;' /tmp/rendered/default.conf"
+      - "grep -qF 'resolver 127.0.0.1 valid=10s ipv6=off;' /tmp/rendered/default.conf"
+      - "grep -qF '#wrap { grid-template-columns: 1fr 1fr; }' /tmp/rendered/index.html"
+      - "grep -qF 'group group-columns' /tmp/rendered/index.html"
+      - "grep -qF 'group group-rows' /tmp/rendered/index.html"
+      - "test $(grep -c '<iframe' /tmp/rendered/index.html) = 7"
+      - "nginx -t -c /tmp/nginx.conf"
+      # An arbitrary origin, framed through nginx: Host header and base path both come from the URL.
+      - "COLUMNS='web=https://www.google.com/maps' ROWS= sh ./docker-entrypoint.nginx.sh true"
+      - "grep -qF 'proxy_set_header Host www.google.com;' /tmp/rendered/default.conf"
+      - "grep -qF 'rewrite ^/web/(.*)$ /maps/$1 break;' /tmp/rendered/default.conf"
+      - "nginx -t -c /tmp/nginx.conf"
+      # Mistakes that used to produce a desktop nobody could bring up, or one that half worked.
+      - "if COLUMNS='a' LAYOUT=sideways sh ./docker-entrypoint.nginx.sh true 2>/dev/null; then echo 'FAIL: an invalid LAYOUT was accepted'; exit 1; fi"
+      - "echo 'invalid LAYOUT rejected'"
+      - "if COLUMNS= ROWS= sh ./docker-entrypoint.nginx.sh true 2>/dev/null; then echo 'FAIL: an empty desktop was accepted'; exit 1; fi"
+      - "echo 'empty desktop rejected'"
+      - "if COLUMNS='coordinator,coder-1' ROWS='coder-1' sh ./docker-entrypoint.nginx.sh true 2>/dev/null; then echo 'FAIL: a duplicated pane name was accepted'; exit 1; fi"
+      - "echo 'duplicated pane name rejected'"
+      - "if COLUMNS='healthz' sh ./docker-entrypoint.nginx.sh true 2>/dev/null; then echo 'FAIL: a pane called healthz was accepted'; exit 1; fi"
+      - "echo 'reserved pane name rejected'"
 
 when:
   - event: push

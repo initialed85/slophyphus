@@ -65,6 +65,20 @@ The "pi-team-room" extension is the mechanism by which agents can communicate; c
 - When an action is required, call the tool immediately
 - After every tool call, inspect its result before reporting the outcome
 
+# The desktop (this repo's own front end)
+
+The UI is generated at container start, not committed: `docker-entrypoint.nginx.sh` renders
+`nginx.conf.template` and `index.html.template` from `COLUMNS` / `ROWS` / `LAYOUT` (see `README.md`).
+There is no committed `nginx.conf` or `index.html` any more, and the rendered copies inside a running
+container are output, not source- edit the template or the environment, never the rendered file.
+
+- The renderer is `/bin/sh` on busybox ash (`nginx:alpine` has no bash): no arrays, no `[[ ]]`, no `$''`.
+- Change which agents are on the desktop with environment variables (compose `UI_*`, or a Deployment's env).
+  Do not add a per-agent block to a template; the templates must not know any agent's name.
+- `.woodpecker/ci.yaml` asserts what the renderer emits. If you change the renderer's output, change the
+  assertions in the same change- a check that passes because it looks for a string that is no longer
+  produced is worse than no check.
+
 # Reusable services
 
 See `/root/.pi/agent/SERVICES.md` for reusable services

@@ -1,8 +1,20 @@
 <!doctype html>
+<!--
+  Rendered by /docker-entrypoint.nginx.sh into /usr/share/nginx/html/index.html.
+
+  The structure below is generic on purpose: a group is a set of panes that share one half of the
+  viewport and split it equally, and the entrypoint decides which groups exist, in which order, and
+  how many panes each holds. Nothing here knows the name of an agent.
+
+  Substituted in by the entrypoint (the markers are lines, so each has its own line here):
+    GRID_CSS    the one rule that splits the viewport between the two groups (1fr 1fr, either axis)
+    GROUPS      the pane markup: a group-columns / group-rows div of cell divs, each holding an iframe
+    PAGE_TITLE  inline in the title element below
+-->
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>slophyphus</title>
+    <title>@@PAGE_TITLE@@</title>
     <style>
       ::-webkit-scrollbar {
         display: none;
@@ -20,23 +32,49 @@
       }
       #wrap {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        grid-template-rows: repeat(4, minmax(0, 1fr));
-        grid-template-areas:
-          "coordinator coder1"
-          "coordinator coder2"
-          "tester coder3"
-          "deployer coder4";
         height: 100vh;
       }
-      iframe,
-      .placeholder {
+@@GRID_CSS@@
+      .group {
+        display: grid;
+        min-width: 0;
+        min-height: 0;
+      }
+      /* A "columns" group is equal-width strips spanning the full height of its half; a "rows" group is
+         equal-height bands spanning the full width of its half. auto-flow + auto-tracks mean the split
+         is equal for any number of panes, including one. */
+      .group-columns {
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+      }
+      .group-rows {
+        grid-auto-flow: row;
+        grid-auto-rows: minmax(0, 1fr);
+      }
+      .cell {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+      }
+      iframe {
         width: 100%;
         height: 100%;
         min-width: 0;
         min-height: 0;
         border: 1px solid #fff;
         box-sizing: border-box;
+      }
+      /* Which agent is which, without asking every upstream (a proxied ttyd page says "ttyd").
+         pointer-events: none so a label can never steal a click or a keystroke from a terminal. */
+      .tag {
+        position: absolute;
+        top: 2px;
+        left: 4px;
+        padding: 0 3px;
+        background: rgba(17, 17, 17, 0.75);
+        color: #777;
+        pointer-events: none;
+        z-index: 2;
       }
       #wrap iframe.focused {
         border-color: #00e676;
@@ -45,25 +83,16 @@
       body.broadcasting #wrap iframe.focused {
         border-color: #ff3b30;
       }
-      #coordinator { grid-area: coordinator; }
-      #tester { grid-area: tester; }
-      #deployer { grid-area: deployer; }
-      #coder1 { grid-area: coder1; }
-      #coder2 { grid-area: coder2; }
-      #coder3 { grid-area: coder3; }
-      #coder4 { grid-area: coder4; }
-      .placeholder {
-        display: grid;
-        place-items: center;
-        color: #777;
-      }
       body.iframe-expanded {
         overflow: hidden;
       }
-      body.iframe-expanded #wrap > :not(.expanded) {
+      body.iframe-expanded #wrap > * {
         visibility: hidden;
       }
-      #wrap iframe.expanded {
+      /* The expanded pane is pulled out of its group rather than resized within it, so the grid never
+         re-flows: everything else stays exactly where it was for when the pane is put back. */
+      body.iframe-expanded #wrap iframe.expanded {
+        visibility: visible;
         position: fixed;
         inset: 0;
         z-index: 1000;
@@ -74,13 +103,7 @@
   </head>
   <body>
     <div id="wrap">
-      <iframe id="coordinator" src="/coordinator/" frameborder="0" scrolling="no" style="overflow: hidden"></iframe>
-      <iframe id="tester" src="/tester/" frameborder="0" scrolling="no" style="overflow: hidden"></iframe>
-      <iframe id="deployer" src="/deployer/" frameborder="0" scrolling="no" style="overflow: hidden"></iframe>
-      <iframe id="coder1" src="/coder-1/" frameborder="0" scrolling="no" style="overflow: hidden"></iframe>
-      <iframe id="coder2" src="/coder-2/" frameborder="0" scrolling="no" style="overflow: hidden"></iframe>
-      <iframe id="coder3" src="/coder-3/" frameborder="0" scrolling="no" style="overflow: hidden"></iframe>
-      <iframe id="coder4" src="/coder-4/" frameborder="0" scrolling="no" style="overflow: hidden"></iframe>
+@@GROUPS@@
     </div>
     <script>
       const frames = Array.from(document.querySelectorAll("#wrap iframe"));
