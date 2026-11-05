@@ -3,12 +3,13 @@ FROM ubuntu:26.04
 SHELL ["/bin/bash", "-lic"]
 
 RUN apt update && \
-    apt install -y tmux ttyd curl unzip ca-certificates ripgrep fd-find libatomic1 locales software-properties-common && \
+    apt install -y tmux ttyd curl unzip ca-certificates ripgrep fd-find libatomic1 locales software-properties-common tzdata && \
         locale-gen en_US.UTF-8 && \
         update-locale LANG=en_US.UTF-8
 
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
+ENV TZ=Australia/Perth
 
 RUN add-apt-repository ppa:trzsz/ppa
 RUN apt update && apt install -y trzsz libsixel-bin
